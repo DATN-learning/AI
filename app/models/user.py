@@ -15,3 +15,4 @@ class User(db.Model):
     # Relationships
     posts = db.relationship('Post', back_populates='user')
     comments = db.relationship('CommentPost', back_populates='user')
+    ratings = db.relationship('Rating', back_populates='user', lazy='dynamic')

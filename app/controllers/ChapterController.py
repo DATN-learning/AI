@@ -34,3 +34,5 @@ def get_chapter_subject():
         'message': 'chapter found',
         'data': {'chapter': result}
     }), 200
+
+
