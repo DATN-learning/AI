@@ -17,4 +17,3 @@ class Rating(db.Model):
     # Relationships
     user = db.relationship('User', back_populates='ratings')
     lesson_chapter = db.relationship('LesstionChapter', back_populates='ratings')
-
