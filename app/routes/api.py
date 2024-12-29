@@ -2,8 +2,8 @@ from flask import Blueprint
 from app.controllers.ChapterController import get_chapter_subject
 from app.controllers.PostController import get_post_question_by_classroom
 from app.controllers.RatingController import get_rating_by_lesson_chapter_id
-from app.controllers.RatingController import getRating
-from app.controllers.RatingController import get_stories
+from app.controllers.RatingController import get_lesson_recommendations
+# from app.controllers.RatingController import get_stories
 
 from app.controllers.RatingController import get_lessons_by_user_ratings
 
@@ -20,7 +20,6 @@ content = Blueprint('content', __name__)
 post.route('/manapost/getcontent', methods=['POST'])(post_content)
 
 ratingss = Blueprint('ratingss', __name__)
-# ratingss.route('/ratings/getratings', methods=['GET'])(getRating)
-ratingss.route('/ratings/getratings', methods=['GET'])(get_stories)
+ratingss.route('/ratings/getratings/<int:user_id>', methods=['GET'])(get_lesson_recommendations)
 ratingss.route('/ratings/by_lesson_chapter', methods=['POST'])(get_rating_by_lesson_chapter_id)
 ratingss.route('/ratings/get_lessons_by_user_ratings', methods=['POST'])(get_lessons_by_user_ratings)

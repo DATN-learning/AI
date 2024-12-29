@@ -3,6 +3,7 @@ from app.extensions import db
 from app.models.ratings import Rating
 from app.models.user import User
 from app.models.lesstion_chapter import LesstionChapter
+from app.models.chapter_subject import ChapterSubject 
 import pandas as pd
 import numpy as np
 from flask import jsonify
@@ -82,10 +83,8 @@ def get_rating_by_lesson_chapter_id():
     
 def get_lessons_by_user_ratings():
     try:
-        # Lấy user_id từ query parameters
         user_id = request.args.get('user_id')
 
-        # Kiểm tra đầu vào
         if not user_id:
             return jsonify({
                 'status': False,
@@ -100,6 +99,7 @@ def get_lessons_by_user_ratings():
         result = []
         for rating in ratings:
             result.append({
+                'user_id': rating.user_id,
                 "lesstion_chapter_id": rating.lesson_chapter.id if rating.lesson_chapter else None,
                 "name_lesstion_chapter": rating.lesson_chapter.name_lesstion_chapter if rating.lesson_chapter else None,
             })
@@ -118,156 +118,131 @@ def get_lessons_by_user_ratings():
         }), 500
 
     
-def getRating():
-    try:
-        all_ratings_response = get_all_ratings()
-        all_ratings_data = all_ratings_response[0].get_json()
-
-        print("Status (all ratings):", all_ratings_data['status'])
-        print("Message (all ratings):", all_ratings_data['message'])
-        print("Data (all ratings):", all_ratings_data['data'])
-
-        user_id = request.args.get('user_id', None)
-
-        if not user_id:
-            return jsonify({
-                'status': False,
-                'message': 'Validation error',
-                'error': {'user_id': 'This field is required in query parameters'}
-            }), 400
-
-        lessons_response = get_lessons_by_user_ratings()
-        lessons_data = lessons_response[0].get_json()
-
-        print("User ID:", user_id)
-        print("Status (user ratings):", lessons_data['status'])
-        print("Message (user ratings):", lessons_data['message'])
-        print("Data (user ratings):", lessons_data['data'])
-
-        return jsonify({
-            'status': True,
-            'ratings': all_ratings_data['data'],
-            'lessons': lessons_data['data']
-        }), 200
-    except Exception as e:
-        # Xử lý lỗi và ghi log
-        print(f"Error in getRating: {str(e)}")
-        return jsonify({
-            'status': False,
-            'message': 'Error retrieving data',
-            'error': str(e)
-        }), 500
-    
 import pandas as pd
 import numpy as np
 from flask import jsonify
 from sklearn.neighbors import NearestNeighbors
 from scipy.sparse import csr_matrix
 
-def create_matrix(df):
-    N = df['user_id'].nunique()
-    M = df['lesstion_chapter_id'].nunique()
+def get_lesson_by_id(lesson_id):
+    try:
+        lesson_id = int(lesson_id)
+        return LesstionChapter.query.filter(LesstionChapter.id == lesson_id).first()
+    except Exception as e:
+        print(f"Error retrieving lesson {lesson_id}: {str(e)}")
+        return None
 
-    user_mapper = dict(zip(np.unique(df["user_id"]), list(range(N))))
-    story_mapper = dict(zip(np.unique(df["lesstion_chapter_id"]), list(range(M))))
-
-    user_inv_mapper = dict(zip(list(range(N)), np.unique(df["user_id"])))
-    story_inv_mapper = dict(zip(list(range(M)), np.unique(df["lesstion_chapter_id"])))
-
-    user_index = [user_mapper[i] for i in df['user_id']]
-    story_index = [story_mapper[i] for i in df['lesstion_chapter_id']]
-
-    X = csr_matrix((df["rating"], (story_index, user_index)), shape=(M, N))
-
-    return X, user_mapper, story_mapper, user_inv_mapper, story_inv_mapper
-
-
-# @story_controller.route('/stories-user/<userId>', methods=['GET'])
-# @cross_origin(origin='*', headers=['Content-Type'])
-def get_stories(userId):
-    stories = get_lessons_by_user_ratings()
-    ratings = get_all_ratings()
+def create_rating_matrix(ratings_df):
+    ratings_df['user_id'] = ratings_df['user_id'].astype('int32')
+    ratings_df['lesstion_chapter_id'] = ratings_df['lesstion_chapter_id'].astype('int32')
+    ratings_df['rating'] = ratings_df['rating'].astype('float32')
     
-    # Convert stories and ratings to DataFrames
-    stories_df = pd.DataFrame(stories)
-    ratings_df = pd.DataFrame(ratings)
+    N = ratings_df['user_id'].nunique()
+    M = ratings_df['lesstion_chapter_id'].nunique()
 
-    all_ratings_data = ratings[0].get_json()
-    print("Data (all ratings):", all_ratings_data['data'])
+    user_mapper = {int(id_): idx for idx, id_ in enumerate(ratings_df['user_id'].unique())}
+    lesson_mapper = {int(id_): idx for idx, id_ in enumerate(ratings_df['lesstion_chapter_id'].unique())}
     
-    n_ratings = len(ratings_df)
-    n_stories = len(stories_df)
-    n_users = len(set(ratings_df['user_id']))
+    user_inv_mapper = {idx: int(id_) for id_, idx in user_mapper.items()}
+    lesson_inv_mapper = {idx: int(id_) for id_, idx in lesson_mapper.items()}
 
-    print(f"Number of ratings: {n_ratings}")
-    print(f"Number of unique movieId's: {n_stories}")
-    print(f"Number of unique users: {n_users}")
-    print(f"Average ratings per user: {round(n_ratings/n_users, 2)}")
-    print(f"Average ratings per movie: {round(n_ratings/n_stories, 2)}")
+    user_index = [user_mapper[int(i)] for i in ratings_df['user_id']]
+    lesson_index = [lesson_mapper[int(i)] for i in ratings_df['lesstion_chapter_id']]
+
+    X = csr_matrix((ratings_df["rating"], (lesson_index, user_index)), shape=(M, N))
     
-    user_freq = ratings_df[['user_id', 'lesstion_chapter_id']].groupby('user_id').count().reset_index()
-    user_freq.columns = ['user_id', 'n_ratings']
-    print(user_freq.head())  
+    return X, user_mapper, lesson_mapper, user_inv_mapper, lesson_inv_mapper
 
-    mean_rating = ratings_df[['lesstion_chapter_id', 'rating']].groupby('lesstion_chapter_id').mean()
-
-    lowest_rated = mean_rating['rating'].idxmin()
-    stories_df.loc[stories_df['id'] == lowest_rated]
-
-    highest_rated = mean_rating['rating'].idxmax()
-    stories_df.loc[stories_df['id'] == highest_rated]
-
-    # show number of people who rated movies rated movie highest
-    ratings_df[ratings_df['lesstion_chapter_id']==highest_rated]
-    # show number of people who rated movies rated movie lowest
-    ratings_df[ratings_df['lesstion_chapter_id']==lowest_rated]
-
-    movie_stats = ratings_df.groupby('lesstion_chapter_id')[['rating']].agg(['count', 'mean'])
-    movie_stats.columns = movie_stats.columns.droplevel()
-
-    X, user_mapper, story_mapper, user_inv_mapper, story_inv_mapper = create_matrix(ratings_df)
-
-    def find_similar_movies(movie_id, X, k, metric='cosine', show_distance=False):
-    
-        neighbour_ids = []
+def find_similar_lessons(lesson_id, X, lesson_mapper, lesson_inv_mapper, k=10):
+    try:
+        lesson_id = int(lesson_id)
+        lesson_idx = lesson_mapper[lesson_id]
+        lesson_vec = X[lesson_idx]
         
-        movie_ind = story_mapper[movie_id]
-        movie_vec = X[movie_ind]
-        k+=1
-        kNN = NearestNeighbors(n_neighbors=k, algorithm="brute", metric=metric)
+        kNN = NearestNeighbors(n_neighbors=k+1, algorithm="brute", metric='cosine')
         kNN.fit(X)
-        movie_vec = movie_vec.reshape(1,-1)
-        neighbour = kNN.kneighbors(movie_vec, return_distance=show_distance)
-        for i in range(0,k):
-            n = neighbour.item(i)
-            neighbour_ids.append(story_inv_mapper[n])
-        neighbour_ids.pop(0)
-        return neighbour_ids
-
-    def recommend_movies_for_user(user_id, X, user_mapper, movie_mapper, movie_inv_mapper, k=10):
-        df1 = ratings_df[ratings_df['user_id'] == user_id]
         
-        if df1.empty:
-            print(f"User with ID {user_id} does not exist.")
-            return []
+        distances, indices = kNN.kneighbors(lesson_vec.reshape(1, -1))
+        similar_lessons = [int(lesson_inv_mapper[idx]) for idx in indices.flatten()[1:]]
+        
+        return similar_lessons
+    except Exception as e:
+        print(f"Error in find_similar_lessons: {str(e)}")
+        return []
 
-        movie_id = df1[df1['rating'] == max(df1['rating'])]['lesstion_chapter_id'].iloc[0]
+def get_lesson_recommendations(user_id):
+    try:
+        user_id = int(user_id)
+        
+        ratings = get_all_ratings()
+        all_ratings_data = ratings[0].get_json()
 
-        movie_titles = dict(zip(stories_df['id'], stories_df['title']))
+        ratings_data = []
+        for r in all_ratings_data['data']:
+            try:
+                ratings_data.append({
+                    'user_id': int(r['user_id']),
+                    'lesstion_chapter_id': int(r['lesstion_chapter_id']),
+                    'rating': float(r['rating'])
+                })
+            except (ValueError, TypeError) as e:
+                print(f"Error converting rating data: {str(e)}")
+                continue
 
-        similar_ids = find_similar_movies(movie_id, X, k)
-        movie_title = movie_titles.get(movie_id, "Movie not found")
+        ratings_df = pd.DataFrame(ratings_data)
+        
+        if ratings_df.empty:
+            return jsonify({
+                'status': False,
+                'message': 'No valid ratings data available',
+                'recommendations': []
+            }), 404
 
-        if movie_title == "Movie not found":
-            print(f"Movie with ID {movie_id} not found.")
-            return []
+        user_ratings = ratings_df[ratings_df['user_id'] == user_id]
+        if user_ratings.empty:
+            return jsonify({
+                'status': False,
+                'message': f'No ratings found for user {user_id}',
+                'recommendations': []
+            }), 404
 
-        print(f"Since you watched {movie_title}, you might also like:")
-        for i in similar_ids:
-            print(movie_titles.get(i, "Movie not found"))
-        return similar_ids
-    
-    user_id = userId
-    listId =  recommend_movies_for_user(user_id, X, user_mapper, story_mapper, story_inv_mapper, k=10)
+        X, user_mapper, lesson_mapper, user_inv_mapper, lesson_inv_mapper = create_rating_matrix(ratings_df)
+        top_rated_lesson = int(user_ratings.loc[user_ratings['rating'].idxmax()]['lesstion_chapter_id'])
+        similar_lessons = find_similar_lessons(top_rated_lesson, X, lesson_mapper, lesson_inv_mapper)
 
-    return jsonify(listId)
+        recommended_lessons = []
+        for lesson_id in similar_lessons:
+            lesson = get_lesson_by_id(lesson_id)
+            if lesson:
+                # Directly fetch chapter using chapter_subject_id
+                chapter = ChapterSubject.query.filter(ChapterSubject.id == lesson.chapter_subject_id).first()
+                
+                if chapter:
+                    recommended_lessons.append({
+                        'chapter': {
+                            'id': int(chapter.id),
+                            'id_chapter_subject': str(chapter.id_chapter_subject),
+                            'subject_id': int(chapter.subject_id),
+                            'name_chapter_subject': str(chapter.name_chapter_subject),
+                            'chapter_image': f'http://192.168.1.125:8000/images/{chapter.chapter_image}' if chapter.chapter_image else None,
+                        },
+                        'lesson': {
+                            'id': int(lesson.id),
+                            'name_lesstion_chapter': str(lesson.name_lesstion_chapter),
+                            'similarity_score': float(similar_lessons.index(lesson_id) / len(similar_lessons)),
+                            'description_lesstion_chapter': str(lesson.description_lesstion_chapter),
+                        }
+                    })
+
+        return jsonify({
+            'recommendations': recommended_lessons
+        }), 200
+
+    except Exception as e:
+        print(f"Error in get_lesson_recommendations: {str(e)}")
+        return jsonify({
+            'status': False,
+            'message': 'Error generating recommendations',
+            'error': str(e),
+            'error_type': str(type(e))
+        }), 500
